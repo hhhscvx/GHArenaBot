@@ -107,3 +107,13 @@ class Tapper:
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when change settings: {error}")
             await asyncio.sleep(delay=3)
+
+    async def get_quests(self, http_client: ClientSession) -> list[dict]:
+        try:
+            response = await http_client.get(url='https://game.gh-arena.com/quests/')
+            response.raise_for_status()
+
+            return await response.json()
+        except Exception as error:
+            logger.error(f"{self.session_name} | Unknown error when get quests: {error}")
+            await asyncio.sleep(delay=3)
