@@ -1,14 +1,17 @@
 import asyncio
 from typing import Any
 from urllib.parse import unquote
+from http import HTTPStatus
 
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientTimeout
+from aiohttp_proxy import ProxyConnector
 from better_proxy import Proxy
 from pyrogram import Client
 from pyrogram.errors import AuthKeyUnregistered, FloodWait, Unauthorized, UserDeactivated
 from pyrogram.raw.functions.messages.request_web_view import RequestWebView
 
 from bot.config import InvalidSession
+from .headers import headers
 from bot.utils import logger
 
 
@@ -100,7 +103,7 @@ class Tapper:
         """TODO skipTutorial:true"""
         try:
             response = await http_client.post(url='https://game.gh-arena.com/settings/',
-                                             json={key: value})
+                                              json={key: value})
             response.raise_for_status()
 
             return await response.json()
@@ -133,10 +136,47 @@ class Tapper:
         """for task in resp['tasks']: ... | там лежат id и completed"""
         try:
             response = await http_client.post(url=f'https://game.gh-arena.com/task/{task_id}/complete/')
-            response.raise_for_status()
 
-            return True
+            return True if response.status == HTTPStatus.OK else False
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when get quest tasks: {error}")
             await asyncio.sleep(delay=3)
 
+    async def check_proxy(self, http_client: ClientSession, proxy: Proxy) -> None:
+        try:
+            response = await http_client.get(url='https://httpbin.org/ip', timeout=ClientTimeout(5))
+            ip = (await response.json()).get('origin')
+            logger.info(f"{self.session_name} | Proxy IP: {ip}")
+        except Exception as error:
+            logger.error(f"{self.session_name} | Proxy: {proxy} | Error: {error}")
+
+    async def run(self, proxy: str | None) -> None:
+        """Пока что только выполняет задания"""
+
+        proxy_conn = ProxyConnector().from_url(proxy) if proxy else None
+
+        async with ClientSession(headers=headers, connector=proxy_conn) as http_client:
+            if proxy:
+                await self.check_proxy(http_client=http_client, proxy=proxy)
+
+            quests = await self.get_quests(http_client)
+            await asyncio.sleep(1)
+            for quest in quests:
+                quest_tasks = (await self.get_quest_tasks(http_client, quest_id=quest['id'])).get('tasks')
+                for task in quest_tasks:
+                    task_name = task['name']
+                    if task['completed'] is True:
+                        logger.info(f"{self.session_name} | Task '{task_name}' is already completed, Skip..")
+                        continue
+                    success_completed = await self.complete_task(http_client, task_id=task['id'])
+                    if success_completed is True:
+                        logger.success(f"{self.session_name} | Successfully completed task '{task_name}'!")
+                    else:
+                        logger.warning(f"{self.session_name} | Problems when complete task '{task_name}'..")
+
+
+async def run_tapper(tg_client: Client, proxy: str | None):
+    try:
+        await Tapper(tg_client=tg_client).run(proxy=proxy)
+    except InvalidSession:
+        logger.error(f"{tg_client.name} | Invalid Session")
