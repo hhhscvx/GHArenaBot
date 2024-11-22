@@ -1,4 +1,5 @@
 import asyncio
+from random import randint
 from typing import Any
 from urllib.parse import unquote
 from http import HTTPStatus
@@ -10,7 +11,7 @@ from pyrogram import Client
 from pyrogram.errors import AuthKeyUnregistered, FloodWait, Unauthorized, UserDeactivated
 from pyrogram.raw.functions.messages.request_web_view import RequestWebView
 
-from bot.config import InvalidSession
+from bot.config import InvalidSession, settings
 from .headers import headers
 from bot.utils import logger
 
@@ -47,7 +48,7 @@ class Tapper:
 
             while True:
                 try:
-                    peer = await self.tg_client.resolve_peer('Yumify_Bot')
+                    peer = await self.tg_client.resolve_peer('GHArenaBot')
                     break
                 except FloodWait as fl:
                     fls = fl.value
@@ -100,7 +101,6 @@ class Tapper:
             await asyncio.sleep(delay=3)
 
     async def change_settings(self, http_client: ClientSession, key: str, value: bool | Any) -> True:
-        """TODO skipTutorial:true"""
         try:
             response = await http_client.post(url='https://game.gh-arena.com/settings/',
                                               json={key: value})
@@ -122,7 +122,6 @@ class Tapper:
             await asyncio.sleep(delay=3)
 
     async def get_quest_tasks(self, http_client: ClientSession, quest_id: int) -> dict:
-        """for task in resp['tasks']: ... | там лежат id и completed"""
         try:
             response = await http_client.get(url=f'https://game.gh-arena.com/quest/{quest_id}/tasks/')
             response.raise_for_status()
@@ -132,14 +131,22 @@ class Tapper:
             logger.error(f"{self.session_name} | Unknown error when get quest tasks: {error}")
             await asyncio.sleep(delay=3)
 
-    async def complete_task(self, http_client: ClientSession, task_id: int) -> bool:
-        """for task in resp['tasks']: ... | там лежат id и completed"""
+    async def complete_task(self, http_client: ClientSession, task_id: int) -> dict:
         try:
             response = await http_client.post(url=f'https://game.gh-arena.com/task/{task_id}/complete/')
 
-            return True if response.status == HTTPStatus.OK else False
+            return await response.json()
         except Exception as error:
-            logger.error(f"{self.session_name} | Unknown error when get quest tasks: {error}")
+            logger.error(f"{self.session_name} | Unknown error when complete task: {error}")
+            await asyncio.sleep(delay=3)
+
+    async def complete_quest(self, http_client: ClientSession, quest_id: int) -> dict:
+        try:
+            response = await http_client.post(url=f'https://game.gh-arena.com/quest/{quest_id}/complete/')
+
+            return await response.json()
+        except Exception as error:
+            logger.error(f"{self.session_name} | Unknown error when complete quest: {error}")
             await asyncio.sleep(delay=3)
 
     async def check_proxy(self, http_client: ClientSession, proxy: Proxy) -> None:
@@ -159,20 +166,56 @@ class Tapper:
             if proxy:
                 await self.check_proxy(http_client=http_client, proxy=proxy)
 
+
+            tg_web_data = await self.get_tg_web_data(proxy=proxy)
+            login = await self.login(http_client=http_client, tg_web_data=tg_web_data)
+            user = await self.get_me(http_client)
+            balance_gold = user['balance']
+            balance_gem = user['gem']
+            logger.success(f"{self.session_name} | Login! Balance: {balance_gold} gold | {balance_gem} gems")
+            await asyncio.sleep(0.5)
+            await self.change_settings(http_client, 'skipTutorial', True)
+
+            attempt = 1
+            while login is not True:
+                sleep_time = randint(*settings.RELOGIN_DELAY)
+                logger.info(f"{self.session_name} | Problems when login, sleep {sleep_time}s before attempt #{attempt + 1}")
+                await asyncio.sleep(sleep_time)
+                tg_web_data = await self.get_tg_web_data(proxy=proxy)
+                login = await self.login(http_client=http_client, tg_web_data=tg_web_data)
+                attempt += 1
+                if attempt > 5:
+                    return logger.info(f"{self.session_name} | All login attempts spent")
+
+
             quests = await self.get_quests(http_client)
             await asyncio.sleep(1)
             for quest in quests:
+                quest_name = quest['name']
+                quest_rewards = quest['gold'] if quest['gold'] is not None else quest['gem']
+                quest_rewards_type = 'gems' if quest['gem'] is not None else 'gold'
                 quest_tasks = (await self.get_quest_tasks(http_client, quest_id=quest['id'])).get('tasks')
+                await asyncio.sleep(1.5)
                 for task in quest_tasks:
                     task_name = task['name']
                     if task['completed'] is True:
                         logger.info(f"{self.session_name} | Task '{task_name}' is already completed, Skip..")
                         continue
-                    success_completed = await self.complete_task(http_client, task_id=task['id'])
-                    if success_completed is True:
-                        logger.success(f"{self.session_name} | Successfully completed task '{task_name}'!")
+                    complete = await self.complete_task(http_client, task_id=task['id'])
+                    sleep_time = randint(*settings.SLEEP_BETWEEN_TASK)
+                    await asyncio.sleep(sleep_time)
+                    if (complete_error := complete.get('error', None)) is not None:
+                        logger.warning(f"{self.session_name} | Error when complete task '{task_name}': '{complete_error}'")
                     else:
-                        logger.warning(f"{self.session_name} | Problems when complete task '{task_name}'..")
+                        logger.success(f"{self.session_name} | Successfully completed task '{task_name}'!")
+                
+                complete_quest = await self.complete_quest(http_client, quest_id=quest['id'])
+                sleep_time = randint(*settings.SLEEP_BETWEEN_TASK)
+                await asyncio.sleep(sleep_time)
+                if (complete_error := complete_quest.get('error', None)) is not None:
+                    logger.warning(f"{self.session_name} | Problems when complete quest '{quest_name}': '{complete_error}'")
+                else:
+                    logger.success(f"{self.session_name} | Successfully completed quest '{quest_name}'! +{quest_rewards} {quest_rewards_type}")
 
 
 async def run_tapper(tg_client: Client, proxy: str | None):

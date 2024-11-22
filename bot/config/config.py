@@ -10,9 +10,9 @@ class Settings(BaseSettings):
     MIN_AVAILABLE_ENERGY: int = 80
     SLEEP_BY_MIN_ENERGY: list[int] = [250, 400]
 
-    SLEEP_BETWEEN_FIGHT: list[int] = [7, 10]
+    SLEEP_BETWEEN_TASK: list[int] = [5, 10]
 
-    RELOGIN_DELAY: list[int] = [5, 7]
+    RELOGIN_DELAY: list[int] = [100, 500]
 
     USE_PROXY_FROM_FILE: bool = False
 
