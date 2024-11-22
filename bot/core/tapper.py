@@ -117,3 +117,26 @@ class Tapper:
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error when get quests: {error}")
             await asyncio.sleep(delay=3)
+
+    async def get_quest_tasks(self, http_client: ClientSession, quest_id: int) -> dict:
+        """for task in resp['tasks']: ... | там лежат id и completed"""
+        try:
+            response = await http_client.get(url=f'https://game.gh-arena.com/quest/{quest_id}/tasks/')
+            response.raise_for_status()
+
+            return await response.json()
+        except Exception as error:
+            logger.error(f"{self.session_name} | Unknown error when get quest tasks: {error}")
+            await asyncio.sleep(delay=3)
+
+    async def complete_task(self, http_client: ClientSession, task_id: int) -> bool:
+        """for task in resp['tasks']: ... | там лежат id и completed"""
+        try:
+            response = await http_client.post(url=f'https://game.gh-arena.com/task/{task_id}/complete/')
+            response.raise_for_status()
+
+            return True
+        except Exception as error:
+            logger.error(f"{self.session_name} | Unknown error when get quest tasks: {error}")
+            await asyncio.sleep(delay=3)
+
