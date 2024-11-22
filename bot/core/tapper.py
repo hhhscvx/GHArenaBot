@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 from urllib.parse import unquote
 
 from aiohttp import ClientSession
@@ -85,4 +86,24 @@ class Tapper:
             logger.error(f"{self.session_name} | Unknown error while Login: {error}")
             await asyncio.sleep(delay=3)
 
-    
+    async def get_me(self, http_client: ClientSession) -> dict:
+        try:
+            response = await http_client.get(url='https://game.gh-arena.com/user/')
+            response.raise_for_status()
+
+            return await response.json()
+        except Exception as error:
+            logger.error(f"{self.session_name} | Unknown error when get user: {error}")
+            await asyncio.sleep(delay=3)
+
+    async def change_settings(self, http_client: ClientSession, key: str, value: bool | Any) -> True:
+        """TODO skipTutorial:true"""
+        try:
+            response = await http_client.post(url='https://game.gh-arena.com/settings/',
+                                             json={key: value})
+            response.raise_for_status()
+
+            return await response.json()
+        except Exception as error:
+            logger.error(f"{self.session_name} | Unknown error when change settings: {error}")
+            await asyncio.sleep(delay=3)
